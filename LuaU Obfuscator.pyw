@@ -45,7 +45,7 @@ from PySide6.QtWidgets import (
 )
 
 
-APP_TITLE = "Lua Obfuscator"
+APP_TITLE = "LuaU Obfuscator"
 PRESET_MAP = {
     "Low": "Weak",
     "Medium": "Medium",
