@@ -1,7 +1,7 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
 cd /d "%~dp0"
-title Lua Obfuscator Installer
+title LuaU Obfuscator Installer
 
 set "APPDIR=%~dp0"
 set "PROMDIR=%APPDIR%Prometheus"
@@ -11,7 +11,7 @@ set "PS=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
 cls
 echo.
 echo  ==================================================
-echo                  LUA OBFUSCATOR SETUP
+echo                  LUAU OBFUSCATOR SETUP
 echo  ==================================================
 echo.
 echo   Installing what the app needs:
@@ -65,7 +65,7 @@ call :SetupLua
 if errorlevel 1 goto LuaFailed
 echo      Done.
 
-if not exist "%APPDIR%Lua Obfuscator.pyw" goto AppMissing
+if not exist "%APPDIR%LuaU Obfuscator.pyw" goto AppMissing
 if not exist "%PROMDIR%\cli.lua" goto PrometheusFailed
 if not exist "%LUADIR%\lua5.1.exe" goto LuaFailed
 
@@ -74,7 +74,7 @@ echo  ==================================================
 echo                ALL SET, YOU ARE READY
 echo  ==================================================
 echo.
-echo   Double-click "Lua Obfuscator.pyw" to start.
+echo   Double-click "LuaU Obfuscator.pyw" to start.
 echo.
 echo   Prometheus: "%PROMDIR%"
 echo   Lua 5.1:    "%LUADIR%\lua5.1.exe"
@@ -236,7 +236,7 @@ echo  ==================================================
 echo                    APP FILE MISSING
 echo  ==================================================
 echo.
-echo   Keep installer.bat and Lua Obfuscator.pyw in the
+echo   Keep installer.bat and LuaU Obfuscator.pyw in the
 echo   same folder, then run the installer again.
 echo.
 pause
