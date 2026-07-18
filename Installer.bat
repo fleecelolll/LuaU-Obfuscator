@@ -1,256 +1,473 @@
 @echo off
-setlocal EnableExtensions EnableDelayedExpansion
-cd /d "%~dp0"
-title LuaU Obfuscator Installer
+setlocal EnableExtensions DisableDelayedExpansion
+title Lua Obfuscator Installer
 
-set "APPDIR=%~dp0"
-set "PROMDIR=%APPDIR%Prometheus"
-set "LUADIR=%APPDIR%Lua51"
-set "PS=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
+set "NO_PAUSE=0"
+
+:ParseArguments
+if "%~1"=="" goto ArgumentsReady
+if /I "%~1"=="--no-pause" set "NO_PAUSE=1"
+shift
+goto ParseArguments
+
+:ArgumentsReady
+set "ROOT=%~dp0"
+set "APP_FILE=%ROOT%Lua Obfuscator.pyw"
+set "LOG=%ROOT%setup.log"
+set "RUNTIME=%ROOT%.runtime"
+set "DOWNLOADS=%RUNTIME%\downloads"
+set "VENV=%ROOT%.venv"
+set "VENV_PY=%VENV%\Scripts\python.exe"
+set "VENV_PYW=%VENV%\Scripts\pythonw.exe"
+set "HERCULES_DIR=%RUNTIME%\hercules"
+set "HERCULES_CLI=%HERCULES_DIR%\src\hercules.lua"
+set "LUA_DIR=%RUNTIME%\lua54"
+set "LUA_EXE=%LUA_DIR%\lua54.exe"
+set "LUAC_EXE=%LUA_DIR%\luac54.exe"
+
+set "PYSIDE_VERSION=6.11.1"
+set "PYPI_INDEX=https://pypi.org/simple"
+set "HERCULES_COMMIT=ace084c897369faf584dfa3baeea159d7b205213"
+set "HERCULES_URL=https://codeload.github.com/zeusssz/hercules-obfuscator/zip/%HERCULES_COMMIT%"
+set "HERCULES_SHA256=8E683C9D49B8298489C12E051ECE8DF55808AC8230914F10814E88DA5408019B"
+set "LUA_VERSION=5.4.8"
+set "LUA_URL=https://downloads.sourceforge.net/project/luabinaries/5.4.8/Tools%%20Executables/lua-5.4.8_Win64_bin.zip"
+set "LUA_SHA256=20321E893509E575D2454DD7BBF05342C1F3CB1B3788C0EC5A55AE4279DDE169"
+
+set "NATIVE_ARCH=%PROCESSOR_ARCHITECTURE%"
+if defined PROCESSOR_ARCHITEW6432 set "NATIVE_ARCH=%PROCESSOR_ARCHITEW6432%"
+if /I "%NATIVE_ARCH%"=="AMD64" goto ArchitectureReady
+if /I "%NATIVE_ARCH%"=="ARM64" goto ArchitectureReady
+set "FAIL_MESSAGE=This installer supports 64-bit Windows only."
+goto Failed
+
+:ArchitectureReady
+if not exist "%RUNTIME%" mkdir "%RUNTIME%" >nul 2>&1
+if not exist "%RUNTIME%" (
+    set "FAIL_MESSAGE=Could not create the private runtime folder."
+    goto Failed
+)
+if not exist "%DOWNLOADS%" mkdir "%DOWNLOADS%" >nul 2>&1
+if not exist "%DOWNLOADS%" (
+    set "FAIL_MESSAGE=Could not create the private download folder."
+    goto Failed
+)
+
+>>"%LOG%" echo.
+>>"%LOG%" echo ============================================================
+>>"%LOG%" echo Setup started: %DATE% %TIME%
+>>"%LOG%" echo Project root: "%ROOT%"
+>>"%LOG%" echo Native architecture: %NATIVE_ARCH%
+>>"%LOG%" echo ============================================================
 
 cls
 echo.
 echo  ==================================================
-echo                  LUAU OBFUSCATOR SETUP
+echo                 LUA OBFUSCATOR SETUP
 echo  ==================================================
 echo.
-echo   Installing what the app needs:
+echo   This keeps the app components inside this folder.
+echo   It does not require administrator access.
 echo.
-echo      Python       runs the GUI
-echo      PySide6      the app window
-echo      Prometheus   obfuscates the Lua script
-echo      Lua 5.1      runs Prometheus
+echo      Python environment     runs the app
+echo      PySide6                the app window
+echo      Hercules              obfuscates Lua and Luau
+echo      Lua 5.4               runs Hercules
 echo.
-echo   Keep this window open until it says finished.
+echo   Keep this window open until every check passes.
 echo.
 echo  ==================================================
 
-call :FindPython
-
-echo.
-echo   [ STEP 1 / 4 ]   Python
-echo.
-if defined PYCMD (
-    echo      Already installed, skipping.
-) else (
-    where winget >nul 2>nul
-    if errorlevel 1 goto NoWinget
-    echo      Installing Python, please wait...
-    winget install --id Python.Python.3.13 --exact --source winget --silent --scope user --accept-source-agreements --accept-package-agreements >nul 2>&1
-    call :FindPython
+if not exist "%APP_FILE%" (
+    set "FAIL_MESSAGE=Lua Obfuscator.pyw is missing from this folder."
+    goto Failed
 )
-if not defined PYCMD goto PythonMissing
+
+echo.
+echo   [ STEP 1 / 5 ]   Private Python environment
+echo.
+call :ValidateVenv
+if not errorlevel 1 goto PythonEnvironmentReady
+
+call :FindBasePython
+if defined BASE_PY goto BasePythonReady
+
+where winget.exe >nul 2>nul
+if errorlevel 1 (
+    set "FAIL_MESSAGE=Python is missing and winget is unavailable. Install Python 3.10 through 3.14, then run setup again."
+    goto Failed
+)
+
+echo      Installing Python for the current Windows user...
+winget install --id Python.Python.3.13 --exact --source winget --silent --scope user --accept-source-agreements --accept-package-agreements >>"%LOG%" 2>&1
+if errorlevel 1 (
+    set "FAIL_MESSAGE=Python could not be installed through winget."
+    goto Failed
+)
+call :FindBasePython
+if not defined BASE_PY (
+    set "FAIL_MESSAGE=Python was installed but could not be detected. Restart Windows, then run setup again."
+    goto Failed
+)
+
+:BasePythonReady
+call :DescribePython "%BASE_PY%"
+echo      Creating the app's private environment...
+call :CreateVenv
+if errorlevel 1 (
+    set "FAIL_MESSAGE=The private Python environment could not be created."
+    goto Failed
+)
+
+:PythonEnvironmentReady
+call :ValidateVenv
+if errorlevel 1 (
+    set "FAIL_MESSAGE=The private Python environment did not pass validation."
+    goto Failed
+)
 echo      Done.
 
 echo.
-echo   [ STEP 2 / 4 ]   PySide6
+echo   [ STEP 2 / 5 ]   App window
 echo.
-echo      Installing or updating the GUI components...
-%PYCMD% -m pip install --upgrade pip >nul 2>&1
-%PYCMD% -m pip install --upgrade PySide6 >nul 2>&1
-if errorlevel 1 goto ComponentsFailed
+echo      Installing the verified PySide6 version...
+call :InstallPySide
+if errorlevel 1 (
+    set "FAIL_MESSAGE=PySide6 could not be installed or verified."
+    goto Failed
+)
 echo      Done.
 
 echo.
-echo   [ STEP 3 / 4 ]   Prometheus
+echo   [ STEP 3 / 5 ]   Hercules
 echo.
-call :SetupPrometheus
-if errorlevel 1 goto PrometheusFailed
+call :ValidateHercules
+if not errorlevel 1 goto HerculesReady
+echo      Downloading the pinned Hercules source...
+call :InstallHercules
+if errorlevel 1 (
+    set "FAIL_MESSAGE=Hercules could not be installed or verified."
+    goto Failed
+)
+:HerculesReady
 echo      Done.
 
 echo.
-echo   [ STEP 4 / 4 ]   Lua 5.1
+echo   [ STEP 4 / 5 ]   Lua 5.4
 echo.
-call :SetupLua
-if errorlevel 1 goto LuaFailed
+call :ValidateLua
+if not errorlevel 1 goto LuaReady
+echo      Downloading the verified Lua 5.4.8 runtime...
+call :InstallLua
+if errorlevel 1 (
+    set "FAIL_MESSAGE=Lua 5.4.8 could not be installed or verified."
+    goto Failed
+)
+:LuaReady
 echo      Done.
 
-if not exist "%APPDIR%LuaU Obfuscator.pyw" goto AppMissing
-if not exist "%PROMDIR%\cli.lua" goto PrometheusFailed
-if not exist "%LUADIR%\lua5.1.exe" goto LuaFailed
+echo.
+echo   [ STEP 5 / 5 ]   Final checks
+echo.
+echo      Testing every required component...
+call :VerifyEverything
+if errorlevel 1 (
+    set "FAIL_MESSAGE=One or more final component checks failed."
+    goto Failed
+)
+echo      Every check passed.
+
+if exist "%DOWNLOADS%" rmdir /s /q "%DOWNLOADS%" >>"%LOG%" 2>&1
+call :Log "Setup completed successfully."
 
 echo.
 echo  ==================================================
 echo                ALL SET, YOU ARE READY
 echo  ==================================================
 echo.
-echo   Double-click "LuaU Obfuscator.pyw" to start.
+echo   Double click "Lua Obfuscator.pyw" to start.
 echo.
-echo   Prometheus: "%PROMDIR%"
-echo   Lua 5.1:    "%LUADIR%\lua5.1.exe"
+echo   Run this installer again to repair the app's
+echo   private environment or downloaded components.
 echo.
-pause
+echo   Setup details were saved to:
+echo   "%LOG%"
+echo.
+call :PauseIfNeeded
 exit /b 0
 
-:FindPython
-set "PYCMD="
-py -3 -V >nul 2>nul && set "PYCMD=py -3"
-if not defined PYCMD (
-    python -V >nul 2>nul && set "PYCMD=python"
-)
-if not defined PYCMD (
-    for /f "delims=" %%P in ('dir /b /s "%LocalAppData%\Programs\Python\Python3*\python.exe" 2^>nul') do (
-        if not defined PYCMD set PYCMD="%%~fP"
-    )
-)
-if not defined PYCMD (
-    for /f "delims=" %%P in ('dir /b /s "%ProgramFiles%\Python3*\python.exe" 2^>nul') do (
-        if not defined PYCMD set PYCMD="%%~fP"
-    )
-)
+:Failed
+if not defined FAIL_MESSAGE set "FAIL_MESSAGE=Setup stopped because an unexpected error occurred."
+call :Log "ERROR: %FAIL_MESSAGE%"
+echo.
+echo  ==================================================
+echo                     SETUP STOPPED
+echo  ==================================================
+echo.
+echo   %FAIL_MESSAGE%
+echo.
+echo   Details were saved to:
+echo   "%LOG%"
+echo.
+echo   Fix the listed problem, then run setup again.
+echo.
+call :PauseIfNeeded
+exit /b 1
+
+:FindBasePython
+set "BASE_PY="
+for %%V in (3.14 3.13 3.12 3.11 3.10) do call :TryPyTag %%V
+if defined BASE_PY exit /b 0
+for /f "delims=" %%P in ('where python.exe 2^>nul ^| findstr /V /I /C:"Microsoft\WindowsApps"') do call :TryPythonPath "%%P"
+if defined BASE_PY exit /b 0
+for %%P in (
+    "%LocalAppData%\Programs\Python\Python314\python.exe"
+    "%LocalAppData%\Programs\Python\Python313\python.exe"
+    "%LocalAppData%\Programs\Python\Python312\python.exe"
+    "%LocalAppData%\Programs\Python\Python311\python.exe"
+    "%LocalAppData%\Programs\Python\Python310\python.exe"
+    "%ProgramFiles%\Python314\python.exe"
+    "%ProgramFiles%\Python313\python.exe"
+    "%ProgramFiles%\Python312\python.exe"
+    "%ProgramFiles%\Python311\python.exe"
+    "%ProgramFiles%\Python310\python.exe"
+) do call :TryPythonPath "%%~fP"
 exit /b 0
 
-:SetupPrometheus
-if exist "%PROMDIR%\cli.lua" exit /b 0
-
-echo      Looking for an existing Prometheus folder...
-for %%D in (
-    "%USERPROFILE%\Prometheus"
-    "%USERPROFILE%\Downloads\Prometheus"
-    "%USERPROFILE%\Documents\Prometheus"
-    "%WINDIR%\System32\Prometheus"
-) do (
-    if exist "%%~D\cli.lua" (
-        echo      Found %%~D
-        if exist "%PROMDIR%" rmdir /s /q "%PROMDIR%" >nul 2>&1
-        xcopy "%%~D\*" "%PROMDIR%\" /E /I /H /Y >nul
-        if exist "%PROMDIR%\cli.lua" exit /b 0
-    )
-)
-
-echo      Downloading the official Prometheus source...
-set "DL_URL=https://github.com/prometheus-lua/Prometheus/archive/refs/heads/master.zip"
-set "DL_DEST=%PROMDIR%"
-call :GetZip
+:TryPyTag
+if defined BASE_PY exit /b 0
+set "CANDIDATE_FILE=%RUNTIME%\python-candidate.txt"
+py -%~1 -I -c "import sys; print(sys.executable)" >"%CANDIDATE_FILE%" 2>nul
 if errorlevel 1 exit /b 1
-if not exist "%PROMDIR%\cli.lua" exit /b 1
-exit /b 0
+set "CANDIDATE="
+set /p "CANDIDATE="<"%CANDIDATE_FILE%"
+del /f /q "%CANDIDATE_FILE%" >nul 2>nul
+if not defined CANDIDATE exit /b 1
+call :TryPythonPath "%CANDIDATE%"
+exit /b %ERRORLEVEL%
 
-:SetupLua
-if exist "%LUADIR%\lua5.1.exe" exit /b 0
-
-echo      Looking for your downloaded Lua folder...
-for %%D in (
-    "%USERPROFILE%\Downloads\lua-5.1.5_Win64_bin"
-    "%USERPROFILE%\Downloads\Lua51"
-    "%USERPROFILE%\Documents\lua-5.1.5_Win64_bin"
-) do (
-    if exist "%%~D\lua5.1.exe" (
-        echo      Found %%~D
-        if exist "%LUADIR%" rmdir /s /q "%LUADIR%" >nul 2>&1
-        xcopy "%%~D\*" "%LUADIR%\" /E /I /H /Y >nul
-        if exist "%LUADIR%\lua5.1.exe" exit /b 0
-    )
-)
-
-set "LUAARCH=Win64"
-if /I "%PROCESSOR_ARCHITECTURE%"=="x86" if not defined PROCESSOR_ARCHITEW6432 set "LUAARCH=Win32"
-
-echo      Downloading Lua 5.1.5 from LuaBinaries...
-set "DL_URL=https://sourceforge.net/projects/luabinaries/files/5.1.5/Tools%%20Executables/lua-5.1.5_%LUAARCH%_bin.zip/download"
-set "DL_DEST=%LUADIR%"
-call :GetZip
+:TryPythonPath
+if defined BASE_PY exit /b 0
+if "%~1"=="" exit /b 1
+if not exist "%~1" exit /b 1
+call :ValidatePython "%~1"
 if errorlevel 1 exit /b 1
-if not exist "%LUADIR%\lua5.1.exe" exit /b 1
+set "BASE_PY=%~1"
+call :Log "Found compatible base CPython: %~1"
 exit /b 0
 
-:GetZip
-rem  Downloads DL_URL, verifies it is a real ZIP, and extracts it into DL_DEST.
-rem  A curl-style User-Agent is required: SourceForge serves its cookie-consent
-rem  HTML page (not the file) to PowerShell's default agent, which used to be
-rem  saved as a .zip and then failed to unzip.
-set "DL_ZIP=%TEMP%\luaobf-dl-%RANDOM%%RANDOM%.zip"
-set "DL_TMP=%TEMP%\luaobf-ex-%RANDOM%%RANDOM%"
-"%PS%" -NoProfile -ExecutionPolicy Bypass -Command ^
-  "$ErrorActionPreference='Stop';" ^
-  "[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12;" ^
-  "$zip='!DL_ZIP!'; $tmp='!DL_TMP!'; $dest='!DL_DEST!';" ^
-  "Invoke-WebRequest -UseBasicParsing -Uri '!DL_URL!' -OutFile $zip -UserAgent 'curl/8.4.0';" ^
-  "$fi=Get-Item -LiteralPath $zip;" ^
-  "if($fi.Length -lt 1000){ throw ('Download failed - got only ' + $fi.Length + ' bytes. The server likely returned an error page instead of the file.') };" ^
-  "$fs=[System.IO.File]::OpenRead($zip); $sig=New-Object byte[] 2; [void]$fs.Read($sig,0,2); $fs.Close();" ^
-  "if($sig[0] -ne 80 -or $sig[1] -ne 75){ throw 'Downloaded file is not a ZIP (the server returned an HTML or error page). Check your internet connection, firewall or proxy, then try again.' };" ^
-  "Add-Type -AssemblyName System.IO.Compression.FileSystem;" ^
-  "if(Test-Path -LiteralPath $tmp){ Remove-Item -LiteralPath $tmp -Recurse -Force };" ^
-  "[System.IO.Compression.ZipFile]::ExtractToDirectory($zip,$tmp);" ^
-  "$items=@(Get-ChildItem -LiteralPath $tmp);" ^
-  "if($items.Count -eq 1 -and $items[0].PSIsContainer){ $root=$items[0].FullName } else { $root=$tmp };" ^
-  "if(Test-Path -LiteralPath $dest){ Remove-Item -LiteralPath $dest -Recurse -Force };" ^
-  "Move-Item -LiteralPath $root -Destination $dest -Force;"
-set "DL_RESULT=%ERRORLEVEL%"
-del /q "%DL_ZIP%" >nul 2>&1
-rmdir /s /q "%DL_TMP%" >nul 2>&1
-exit /b %DL_RESULT%
+:ValidatePython
+if "%~1"=="" exit /b 1
+if not exist "%~1" exit /b 1
+"%~1" -I -c "import sys, struct, venv, ensurepip; ok = sys.implementation.name == 'cpython' and (3, 10) <= sys.version_info[:2] < (3, 15) and struct.calcsize('P') == 8; raise SystemExit(0 if ok else 1)" >>"%LOG%" 2>&1
+exit /b %ERRORLEVEL%
 
-:PythonMissing
-echo.
-echo  ==================================================
-echo                    SETUP PAUSED
-echo  ==================================================
-echo.
-echo   Python could not be detected after installation.
-echo   Restart your PC, then run this installer again.
-echo.
-pause
+:DescribePython
+"%~1" -I -c "import platform, sys; print('Selected CPython ' + platform.python_version() + ' at ' + sys.executable)" >>"%LOG%" 2>&1
+exit /b 0
+
+:CreateVenv
+if not defined BASE_PY exit /b 1
+call :ValidatePython "%BASE_PY%"
+if errorlevel 1 exit /b 1
+if exist "%VENV%" rmdir /s /q "%VENV%" >>"%LOG%" 2>&1
+if exist "%VENV%" exit /b 1
+"%BASE_PY%" -I -m venv --copies "%VENV%" >>"%LOG%" 2>&1
+if errorlevel 1 exit /b 1
+call :ValidateVenv
+exit /b %ERRORLEVEL%
+
+:ValidateVenv
+if not exist "%VENV_PY%" exit /b 1
+if not exist "%VENV_PYW%" exit /b 1
+"%VENV_PY%" -I -c "import sys, struct; ok = sys.implementation.name == 'cpython' and (3, 10) <= sys.version_info[:2] < (3, 15) and struct.calcsize('P') == 8 and sys.prefix != sys.base_prefix; raise SystemExit(0 if ok else 1)" >>"%LOG%" 2>&1
+exit /b %ERRORLEVEL%
+
+:InstallPySide
+call :ValidateVenv
+if errorlevel 1 exit /b 1
+"%VENV_PY%" -I -m pip --isolated --disable-pip-version-check install --upgrade --no-cache-dir --only-binary=:all: --index-url "%PYPI_INDEX%" pip >>"%LOG%" 2>&1
+if errorlevel 1 exit /b 1
+"%VENV_PY%" -I -m pip --isolated --disable-pip-version-check install --upgrade --no-cache-dir --only-binary=:all: --index-url "%PYPI_INDEX%" "PySide6==%PYSIDE_VERSION%" >>"%LOG%" 2>&1
+if errorlevel 1 exit /b 1
+call :VerifyPySide
+exit /b %ERRORLEVEL%
+
+:VerifyPySide
+if not exist "%VENV_PY%" exit /b 1
+"%VENV_PY%" -I -c "import PySide6; from importlib.metadata import version; assert version('PySide6') == '%PYSIDE_VERSION%'; print('PySide6=' + version('PySide6'))" >>"%LOG%" 2>&1
+if errorlevel 1 exit /b 1
+"%VENV_PY%" -I -m pip --isolated --disable-pip-version-check check >>"%LOG%" 2>&1
+exit /b %ERRORLEVEL%
+
+:ValidateHercules
+if not exist "%HERCULES_CLI%" exit /b 1
+if not exist "%HERCULES_DIR%\src\pipeline.lua" exit /b 1
+if not exist "%HERCULES_DIR%\src\manifest.lua" exit /b 1
+if not exist "%HERCULES_DIR%\LICENSE" exit /b 1
+if not exist "%HERCULES_DIR%\.fleece-version" exit /b 1
+set "FOUND_HERCULES_VERSION="
+set /p "FOUND_HERCULES_VERSION="<"%HERCULES_DIR%\.fleece-version"
+if /I not "%FOUND_HERCULES_VERSION%"=="%HERCULES_COMMIT%" exit /b 1
+exit /b 0
+
+:InstallHercules
+set "HERCULES_ARCHIVE=%DOWNLOADS%\hercules-%HERCULES_COMMIT%.zip"
+set "HERCULES_EXTRACT=%RUNTIME%\hercules.extract"
+set "HERCULES_NEW=%RUNTIME%\hercules.new"
+set "DL_URL=%HERCULES_URL%"
+call :DownloadAndVerify "%HERCULES_ARCHIVE%" "%HERCULES_SHA256%"
+if errorlevel 1 exit /b 1
+if exist "%HERCULES_EXTRACT%" rmdir /s /q "%HERCULES_EXTRACT%" >>"%LOG%" 2>&1
+if exist "%HERCULES_NEW%" rmdir /s /q "%HERCULES_NEW%" >>"%LOG%" 2>&1
+set "ARCHIVE_FILE=%HERCULES_ARCHIVE%"
+set "EXTRACT_DIR=%HERCULES_EXTRACT%"
+set "NEW_DIR=%HERCULES_NEW%"
+powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; Expand-Archive -LiteralPath $env:ARCHIVE_FILE -DestinationPath $env:EXTRACT_DIR -Force; $root=Get-ChildItem -LiteralPath $env:EXTRACT_DIR -Directory | Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName 'src\hercules.lua') } | Select-Object -First 1; if(-not $root){throw 'Hercules archive did not contain the expected source.'}; Move-Item -LiteralPath $root.FullName -Destination $env:NEW_DIR; Set-Content -LiteralPath (Join-Path $env:NEW_DIR '.fleece-version') -Value $env:HERCULES_COMMIT -Encoding ASCII" >>"%LOG%" 2>&1
+if errorlevel 1 exit /b 1
+call :ReplaceDirectory "%HERCULES_NEW%" "%HERCULES_DIR%"
+if errorlevel 1 exit /b 1
+if exist "%HERCULES_EXTRACT%" rmdir /s /q "%HERCULES_EXTRACT%" >>"%LOG%" 2>&1
+del /f /q "%HERCULES_ARCHIVE%" >nul 2>nul
+call :ValidateHercules
+exit /b %ERRORLEVEL%
+
+:ValidateLua
+call :ValidateLuaAt "%LUA_DIR%"
+exit /b %ERRORLEVEL%
+
+:ValidateLuaAt
+if "%~1"=="" exit /b 1
+if not exist "%~1\lua54.exe" exit /b 1
+if not exist "%~1\luac54.exe" exit /b 1
+set "LUA_CHECK=%RUNTIME%\lua-check.txt"
+"%~1\lua54.exe" -v >"%LUA_CHECK%" 2>&1
+if errorlevel 1 exit /b 1
+findstr /I /C:"Lua %LUA_VERSION%" "%LUA_CHECK%" >nul
+if errorlevel 1 exit /b 1
+type "%LUA_CHECK%" >>"%LOG%"
+"%~1\luac54.exe" -v >"%LUA_CHECK%" 2>&1
+if errorlevel 1 exit /b 1
+findstr /I /C:"Lua %LUA_VERSION%" "%LUA_CHECK%" >nul
+if errorlevel 1 exit /b 1
+type "%LUA_CHECK%" >>"%LOG%"
+del /f /q "%LUA_CHECK%" >nul 2>nul
+exit /b 0
+
+:InstallLua
+set "LUA_ARCHIVE=%DOWNLOADS%\lua-%LUA_VERSION%-win64.zip"
+set "LUA_NEW=%RUNTIME%\lua54.new"
+set "DL_URL=%LUA_URL%"
+call :DownloadAndVerify "%LUA_ARCHIVE%" "%LUA_SHA256%"
+if errorlevel 1 exit /b 1
+if exist "%LUA_NEW%" rmdir /s /q "%LUA_NEW%" >>"%LOG%" 2>&1
+set "ARCHIVE_FILE=%LUA_ARCHIVE%"
+set "NEW_DIR=%LUA_NEW%"
+powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; Expand-Archive -LiteralPath $env:ARCHIVE_FILE -DestinationPath $env:NEW_DIR -Force; if(-not (Test-Path -LiteralPath (Join-Path $env:NEW_DIR 'lua54.exe')) -or -not (Test-Path -LiteralPath (Join-Path $env:NEW_DIR 'luac54.exe'))){throw 'Lua archive did not contain the expected tools.'}" >>"%LOG%" 2>&1
+if errorlevel 1 exit /b 1
+call :ValidateLuaAt "%LUA_NEW%"
+if errorlevel 1 exit /b 1
+call :ReplaceDirectory "%LUA_NEW%" "%LUA_DIR%"
+if errorlevel 1 exit /b 1
+del /f /q "%LUA_ARCHIVE%" >nul 2>nul
+call :ValidateLua
+exit /b %ERRORLEVEL%
+
+:VerifyEverything
+call :ValidateVenv
+if errorlevel 1 exit /b 1
+call :VerifyPySide
+if errorlevel 1 exit /b 1
+call :ValidateHercules
+if errorlevel 1 exit /b 1
+call :ValidateLua
+if errorlevel 1 exit /b 1
+"%VENV_PY%" -I -c "from pathlib import Path; app=Path(r'%APP_FILE%'); compile(app.read_text(encoding='utf-8'), str(app), 'exec'); print('Application source compiled successfully.')" >>"%LOG%" 2>&1
+if errorlevel 1 exit /b 1
+call :RunEngineChecks
+exit /b %ERRORLEVEL%
+
+:RunEngineChecks
+set "CHECK_DIR=%RUNTIME%\checks"
+if exist "%CHECK_DIR%" rmdir /s /q "%CHECK_DIR%" >>"%LOG%" 2>&1
+mkdir "%CHECK_DIR%" >>"%LOG%" 2>&1
+if not exist "%CHECK_DIR%" exit /b 1
+>"%CHECK_DIR%\lua-smoke.lua" echo local message = "lua-ok"
+>>"%CHECK_DIR%\lua-smoke.lua" echo print(message)
+>"%CHECK_DIR%\luau-smoke.luau" echo local message: string = "luau-ok"
+>>"%CHECK_DIR%\luau-smoke.luau" echo print(message)
+pushd "%HERCULES_DIR%\src" >nul 2>&1
+if errorlevel 1 exit /b 1
+"%LUA_EXE%" "hercules.lua" "%CHECK_DIR%\lua-smoke.lua" --target lua --light --no-watermark >>"%LOG%" 2>&1
+set "LUA_SMOKE_CODE=%ERRORLEVEL%"
+"%LUA_EXE%" "hercules.lua" "%CHECK_DIR%\luau-smoke.luau" --target luau --light --no-watermark >>"%LOG%" 2>&1
+set "LUAU_SMOKE_CODE=%ERRORLEVEL%"
+popd >nul 2>&1
+if not "%LUA_SMOKE_CODE%"=="0" exit /b 1
+if not "%LUAU_SMOKE_CODE%"=="0" exit /b 1
+if not exist "%CHECK_DIR%\lua-smoke_obfuscated.lua" exit /b 1
+if not exist "%CHECK_DIR%\luau-smoke_obfuscated.luau" exit /b 1
+"%LUAC_EXE%" -p "%CHECK_DIR%\lua-smoke_obfuscated.lua" >>"%LOG%" 2>&1
+if errorlevel 1 exit /b 1
+rmdir /s /q "%CHECK_DIR%" >>"%LOG%" 2>&1
+exit /b 0
+
+:ReplaceDirectory
+set "REPLACE_NEW=%~1"
+set "REPLACE_TARGET=%~2"
+set "REPLACE_BACKUP=%~2.old"
+if not exist "%REPLACE_NEW%" exit /b 1
+if exist "%REPLACE_BACKUP%" rmdir /s /q "%REPLACE_BACKUP%" >>"%LOG%" 2>&1
+if exist "%REPLACE_BACKUP%" exit /b 1
+if not exist "%REPLACE_TARGET%" goto ReplaceMoveNew
+move "%REPLACE_TARGET%" "%REPLACE_BACKUP%" >>"%LOG%" 2>&1
+if errorlevel 1 exit /b 1
+
+:ReplaceMoveNew
+move "%REPLACE_NEW%" "%REPLACE_TARGET%" >>"%LOG%" 2>&1
+if errorlevel 1 goto ReplaceRollback
+if exist "%REPLACE_BACKUP%" rmdir /s /q "%REPLACE_BACKUP%" >>"%LOG%" 2>&1
+exit /b 0
+
+:ReplaceRollback
+if exist "%REPLACE_TARGET%" rmdir /s /q "%REPLACE_TARGET%" >>"%LOG%" 2>&1
+if exist "%REPLACE_BACKUP%" move "%REPLACE_BACKUP%" "%REPLACE_TARGET%" >>"%LOG%" 2>&1
 exit /b 1
 
-:ComponentsFailed
-echo.
-echo  ==================================================
-echo                   SETUP STOPPED
-echo  ==================================================
-echo.
-echo   PySide6 could not be installed. Check your internet
-echo   connection, then run the installer again.
-echo.
-pause
-exit /b 1
+:DownloadAndVerify
+set "DL_FILE=%~1"
+set "DL_HASH=%~2"
+if not defined DL_URL exit /b 1
+if exist "%DL_FILE%" del /f /q "%DL_FILE%" >nul 2>nul
+call :Log "Downloading: %DL_URL%"
+where curl.exe >nul 2>nul
+if errorlevel 1 goto DownloadWithPowerShell
+curl.exe --fail --location --silent --show-error --retry 3 --retry-delay 2 --connect-timeout 30 --proto "=https" --proto-redir "=https" -o "%DL_FILE%" "%DL_URL%" >>"%LOG%" 2>&1
+if not errorlevel 1 goto VerifyDownload
+call :Log "curl failed; retrying with PowerShell."
 
-:PrometheusFailed
-echo.
-echo  ==================================================
-echo                   SETUP STOPPED
-echo  ==================================================
-echo.
-echo   Prometheus could not be prepared. Check your internet
-echo   connection and run the installer again.
-echo.
-pause
-exit /b 1
+:DownloadWithPowerShell
+powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; $ProgressPreference='SilentlyContinue'; [Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -UseBasicParsing -Uri $env:DL_URL -OutFile $env:DL_FILE -UserAgent 'curl/8.4.0'" >>"%LOG%" 2>&1
+if errorlevel 1 exit /b 1
 
-:LuaFailed
-echo.
-echo  ==================================================
-echo                   SETUP STOPPED
-echo  ==================================================
-echo.
-echo   Lua 5.1 could not be prepared. Check your internet
-echo   connection and run the installer again.
-echo.
-pause
-exit /b 1
+:VerifyDownload
+if not exist "%DL_FILE%" exit /b 1
+call :VerifyFileHash "%DL_FILE%" "%DL_HASH%"
+exit /b %ERRORLEVEL%
 
-:AppMissing
-echo.
-echo  ==================================================
-echo                    APP FILE MISSING
-echo  ==================================================
-echo.
-echo   Keep installer.bat and LuaU Obfuscator.pyw in the
-echo   same folder, then run the installer again.
-echo.
-pause
-exit /b 1
+:VerifyFileHash
+set "VERIFY_FILE=%~1"
+set "VERIFY_HASH=%~2"
+if not exist "%VERIFY_FILE%" exit /b 1
+if not defined VERIFY_HASH exit /b 1
+powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; $stream=[IO.File]::OpenRead($env:VERIFY_FILE); try{$sha=[Security.Cryptography.SHA256]::Create(); try{$actual=([BitConverter]::ToString($sha.ComputeHash($stream))).Replace('-','')} finally{$sha.Dispose()}} finally{$stream.Dispose()}; if($actual -ne $env:VERIFY_HASH){throw ('SHA-256 mismatch. Expected {0}, got {1}' -f $env:VERIFY_HASH,$actual)}; Write-Output ('Verified SHA-256: ' + $actual)" >>"%LOG%" 2>&1
+exit /b %ERRORLEVEL%
 
-:NoWinget
-echo.
-echo  ==================================================
-echo                   ONE THING NEEDED
-echo  ==================================================
-echo.
-echo   Python is not installed, and this PC does not have
-echo   winget available. Install or update "App Installer"
-echo   from the Microsoft Store, then run this again.
-echo.
+:Log
+>>"%LOG%" echo [%DATE% %TIME%] %~1
+exit /b 0
+
+:PauseIfNeeded
+if "%NO_PAUSE%"=="1" exit /b 0
 pause
-exit /b 1
+exit /b 0

@@ -1,4 +1,4 @@
-FLEECE LUAU OBFUSCATOR
+FLEECE LUA OBFUSCATOR
 
 INSTALL
 
@@ -9,37 +9,45 @@ You do not need to run the installer as administrator.
 
 USE
 
-Double-click LuaU Obfuscator.pyw, choose a .lua file, select an obfuscation level, choose the output folder, and click Obfuscate.
+Double-click Lua Obfuscator.pyw, choose a .lua or .luau file, select Lua 5.4 or Roblox Luau, select an obfuscation level, choose the output folder, and click Obfuscate.
+
+Lua output is saved as <name>.obfuscated.lua. Luau output is saved as <name>.obfuscated.luau. The original file is never overwritten.
+
+TARGETS
+
+- Lua 5.4 uses every protection available in Hercules.
+- Roblox Luau automatically skips the VM and bytecode protections that are incompatible with Luau.
 
 UPDATES
 
-Run Installer.bat again to repair Prometheus, Lua 5.1, Python, or PySide6.
+Run Installer.bat again to repair Hercules, Lua 5.4, the private Python environment, or PySide6.
 
 WHAT THE INSTALLER ADDS
 
-- If Python is already installed, setup uses it and installs or updates PySide6 in that Python environment.
-- If Python is unavailable, setup installs Python 3.13 for the current Windows user through winget.
-- Prometheus comes from the official prometheus-lua/Prometheus GitHub repository and stays inside the app folder.
-- Lua 5.1.5 comes from LuaBinaries and stays inside the app folder.
+- A private .venv folder keeps PySide6 separate from globally installed Python packages.
+- If compatible 64-bit Python 3.10 through 3.14 is unavailable, setup installs Python 3.13 for the current Windows user through winget.
+- A pinned Hercules source snapshot is stored inside .runtime.
+- Lua 5.4.8 from LuaBinaries is stored inside .runtime.
+- The Hercules and Lua archives are verified against pinned SHA-256 checksums.
 
 PRIVACY
 
-The app contains no telemetry, analytics, accounts, or usage tracking. Installer.bat connects to the official setup sources described above to install or repair components.
+The app contains no telemetry, analytics, accounts, or usage tracking. Scripts are processed locally and are never uploaded. Installer.bat connects only to the official setup sources described above.
 
 TROUBLESHOOTING
 
-If setup fails, check your internet connection and run Installer.bat again.
+If setup fails, check your internet connection and run Installer.bat again. Details are saved in setup.log. The log can include local folder paths, so review it before sharing it.
 
-If LuaU Obfuscator.pyw does not open, rerun Installer.bat and make sure every final check passes. Keep the whole folder together; moving only the .pyw file will break the app.
+If Lua Obfuscator.pyw does not open, rerun Installer.bat and make sure every final check passes. Keep Installer.bat and Lua Obfuscator.pyw together in the same folder.
 
 REMOVE
 
-Close the app and delete this folder to remove Prometheus, Lua 5.1, and the app files. Python or PySide6 installed by setup may remain in your user environment.
+Close the app and delete this folder. That removes the private Python environment, Hercules, Lua 5.4, and the app files. A Python installation added through winget may remain in your user environment.
 
 SOURCE AND RESPONSIBLE USE
 
-Source: https://github.com/fleecelolll/LuaU-Obfuscator
+Source: https://github.com/fleecelolll/Lua-Obfuscator
 
 This project was made with AI.
 
-Only obfuscate code that you own or have permission to modify.
+Obfuscation makes source harder to read but does not make it impossible to recover. Only obfuscate code you own or have permission to modify.

@@ -3,8 +3,24 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
+import uuid
 from pathlib import Path
 from typing import Optional
+
+
+APP_BOOTSTRAP_DIR = Path(__file__).resolve().parent
+VENV_ROOT = APP_BOOTSTRAP_DIR / ".venv"
+VENV_PYW = APP_BOOTSTRAP_DIR / ".venv" / "Scripts" / "pythonw.exe"
+if os.name == "nt" and VENV_PYW.is_file():
+    if Path(sys.prefix).resolve() != VENV_ROOT.resolve():
+        subprocess.Popen(
+            [str(VENV_PYW), str(Path(__file__).resolve()), *sys.argv[1:]],
+            cwd=str(APP_BOOTSTRAP_DIR),
+            creationflags=0x08000000,
+        )
+        raise SystemExit(0)
+
 
 from PySide6.QtCore import (
     QEasingCurve,
@@ -45,11 +61,15 @@ from PySide6.QtWidgets import (
 )
 
 
-APP_TITLE = "LuaU Obfuscator"
+APP_TITLE = "Lua Obfuscator"
 PRESET_MAP = {
-    "Low": "Weak",
-    "Medium": "Medium",
-    "High": "Strong",
+    "Low": "light",
+    "Medium": "balanced",
+    "High": "maximum",
+}
+TARGET_MAP = {
+    "Lua 5.4": "lua",
+    "Roblox Luau": "luau",
 }
 ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 
@@ -336,12 +356,15 @@ class LuaObfuscator(QMainWindow):
         self.output_folder = Path.home() / "Downloads"
         self.output_file: Optional[Path] = None
         self.process: Optional[QProcess] = None
+        self.work_dir: Optional[Path] = None
+        self.staged_output: Optional[Path] = None
+        self.active_target: Optional[str] = None
         self.running = False
         self.cancel_requested = False
         self.last_log_message = ""
 
         self.lua_path = self.find_lua_runtime()
-        self.cli_path = self.find_prometheus_cli()
+        self.cli_path = self.find_hercules_cli()
 
         self.apply_style()
         self.build_ui()
@@ -361,59 +384,26 @@ class LuaObfuscator(QMainWindow):
                 creationflags=self._creation_flags(),
             )
             version_text = f"{result.stdout}\n{result.stderr}".lower()
-            return "lua 5.1" in version_text or "luajit" in version_text
+            return "lua 5.4" in version_text
         except (OSError, subprocess.SubprocessError):
             return False
 
     def find_lua_runtime(self) -> Optional[Path]:
-        candidates = [
-            self.app_dir / "Lua51" / "lua5.1.exe",
-            self.app_dir / "lua-5.1.5_Win64_bin" / "lua5.1.exe",
-            Path.home() / "Downloads" / "lua-5.1.5_Win64_bin" / "lua5.1.exe",
-            Path.home() / "Downloads" / "Lua51" / "lua5.1.exe",
-            Path.home() / "Documents" / "Lua51" / "lua5.1.exe",
-        ]
+        candidate = self.app_dir / ".runtime" / "lua54" / "lua54.exe"
+        try:
+            candidate = candidate.resolve()
+        except OSError:
+            return None
+        return candidate if candidate.is_file() and self.is_compatible_lua(candidate) else None
 
-        for executable_name in ("lua5.1.exe", "lua51.exe", "luajit.exe"):
-            located = shutil.which(executable_name)
-            if located:
-                candidates.append(Path(located))
-
-        seen = set()
-        for candidate in candidates:
-            try:
-                candidate = candidate.resolve()
-            except OSError:
-                continue
-            if candidate in seen:
-                continue
-            seen.add(candidate)
-            if candidate.is_file() and self.is_compatible_lua(candidate):
-                return candidate
-
-        return None
-
-    def find_prometheus_cli(self) -> Optional[Path]:
-        candidates = [
-            self.app_dir / "Prometheus" / "cli.lua",
-            self.app_dir / "Prometheus-master" / "cli.lua",
-            Path.home() / "Prometheus" / "cli.lua",
-            Path.home() / "Downloads" / "Prometheus" / "cli.lua",
-            Path.home() / "Documents" / "Prometheus" / "cli.lua",
-            Path(os.environ.get("WINDIR", r"C:\Windows"))
-            / "System32"
-            / "Prometheus"
-            / "cli.lua",
-        ]
-
-        for candidate in candidates:
-            try:
-                candidate = candidate.resolve()
-            except OSError:
-                continue
-            if candidate.is_file() and (candidate.parent / "src").is_dir():
-                return candidate
-
+    def find_hercules_cli(self) -> Optional[Path]:
+        candidate = self.app_dir / ".runtime" / "hercules" / "src" / "hercules.lua"
+        try:
+            candidate = candidate.resolve()
+        except OSError:
+            return None
+        if candidate.is_file() and (candidate.parent / "pipeline.lua").is_file():
+            return candidate
         return None
 
     def apply_style(self):
@@ -689,16 +679,12 @@ class LuaObfuscator(QMainWindow):
         info_column.setSpacing(label_gap)
         info_label = QLabel("Target")
         info_label.setObjectName("label")
-        target_frame = QFrame()
-        target_frame.setObjectName("pathFrame")
-        target_frame.setMinimumHeight(38)
-        target_layout = QHBoxLayout(target_frame)
-        target_layout.setContentsMargins(0, 0, 0, 0)
-        target_text = QLabel("Roblox LuaU")
-        target_text.setObjectName("pathLabel")
-        target_layout.addWidget(target_text)
+        self.target_dropdown = AnimatedDropdown(
+            ["Lua 5.4", "Roblox Luau"],
+            current_index=0,
+        )
         info_column.addWidget(info_label)
-        info_column.addWidget(target_frame)
+        info_column.addWidget(self.target_dropdown)
 
         selectors.addLayout(level_column, 1)
         selectors.addLayout(info_column, 1)
@@ -784,9 +770,9 @@ class LuaObfuscator(QMainWindow):
     def report_setup_status(self):
         missing = []
         if self.lua_path is None:
-            missing.append("Lua 5.1")
+            missing.append("Lua 5.4")
         if self.cli_path is None:
-            missing.append("Prometheus")
+            missing.append("Hercules")
 
         if missing:
             self.status_label.setText("Setup needed")
@@ -796,13 +782,13 @@ class LuaObfuscator(QMainWindow):
         else:
             self.status_label.setText("Ready")
             self.append_log(f"Lua: {self.lua_path}")
-            self.append_log(f"Prometheus: {self.cli_path.parent}")
+            self.append_log(f"Hercules: {self.cli_path.parent.parent}")
 
     def level_changed(self, value: str):
         notes = {
-            "Low": "Low uses Prometheus's Weak preset. Fast with smaller output.",
+            "Low": "Low is fast and produces smaller output.",
             "Medium": "Medium is the recommended balance of protection and size.",
-            "High": "High uses the Strong preset. Output can be huge and slower.",
+            "High": "High uses every compatible protection. Output can be huge and slower.",
         }
         self.level_note.setText(notes[value])
 
@@ -816,16 +802,16 @@ class LuaObfuscator(QMainWindow):
             self,
             "Choose Lua File",
             start_folder,
-            "Lua files (*.lua);;All files (*.*)",
+            "Lua files (*.lua *.luau);;All files (*.*)",
         )
         if filename:
             self.set_source_file(Path(filename))
 
     def set_source_file(self, path: Path):
         path = path.expanduser().resolve()
-        if not path.is_file() or path.suffix.lower() != ".lua":
-            self.status_label.setText("Choose a .lua file")
-            self.append_log("That file is not a valid .lua file.")
+        if not path.is_file() or path.suffix.lower() not in {".lua", ".luau"}:
+            self.status_label.setText("Choose a Lua file")
+            self.append_log("Choose a valid .lua or .luau file.")
             return
 
         self.source_file = path
@@ -838,6 +824,8 @@ class LuaObfuscator(QMainWindow):
         self.open_folder_button.setEnabled(False)
         self.status_label.setText("Ready")
         self.append_log(f"Selected: {path.name}")
+        if path.suffix.lower() == ".luau":
+            self.target_dropdown.select("Roblox Luau")
 
     def choose_output_folder(self):
         folder = QFileDialog.getExistingDirectory(
@@ -872,7 +860,7 @@ class LuaObfuscator(QMainWindow):
         if self.lua_path is None or not self.lua_path.is_file():
             self.lua_path = self.find_lua_runtime()
         if self.cli_path is None or not self.cli_path.is_file():
-            self.cli_path = self.find_prometheus_cli()
+            self.cli_path = self.find_hercules_cli()
 
     def obfuscate_or_cancel(self):
         if self.running:
@@ -885,23 +873,32 @@ class LuaObfuscator(QMainWindow):
 
         if self.source_file is None or not self.source_file.is_file():
             self.status_label.setText("Choose a file")
-            self.append_log("Choose a .lua file first.")
+            self.append_log("Choose a .lua or .luau file first.")
             return
 
         if self.lua_path is None:
-            self.status_label.setText("Lua 5.1 missing")
-            self.append_log("Lua 5.1 was not found. Run installer.bat again.")
+            self.status_label.setText("Lua 5.4 missing")
+            self.append_log("Lua 5.4 was not found. Run Installer.bat again.")
             return
 
         if self.cli_path is None:
-            self.status_label.setText("Prometheus missing")
-            self.append_log("Prometheus was not found. Run installer.bat again.")
+            self.status_label.setText("Hercules missing")
+            self.append_log("Hercules was not found. Run Installer.bat again.")
             return
 
-        self.output_folder.mkdir(parents=True, exist_ok=True)
+        target_label = self.target_dropdown.currentText()
+        target = TARGET_MAP[target_label]
+        output_extension = ".luau" if target == "luau" else ".lua"
         output_file = self.output_folder / (
-            f"{self.source_file.stem}.obfuscated.lua"
+            f"{self.source_file.stem}.obfuscated{output_extension}"
         )
+
+        try:
+            self.output_folder.mkdir(parents=True, exist_ok=True)
+        except OSError as error:
+            self.status_label.setText("Invalid output")
+            self.append_log(f"Could not create the output folder: {error}")
+            return
 
         if output_file.resolve() == self.source_file.resolve():
             self.status_label.setText("Invalid output")
@@ -921,25 +918,43 @@ class LuaObfuscator(QMainWindow):
                 return
 
         preset = PRESET_MAP[self.level_dropdown.currentText()]
+        self.cleanup_work_dir()
+
+        try:
+            work_root = self.app_dir / ".runtime" / "work"
+            work_root.mkdir(parents=True, exist_ok=True)
+            self.work_dir = Path(
+                tempfile.mkdtemp(prefix="job-", dir=str(work_root))
+            )
+            staged_source = self.work_dir / self.source_file.name
+            shutil.copy2(self.source_file, staged_source)
+            self.staged_output = self.work_dir / (
+                f"{self.source_file.stem}_obfuscated{output_extension}"
+            )
+        except OSError as error:
+            self.cleanup_work_dir()
+            self.status_label.setText("Could not prepare")
+            self.append_log(f"Could not prepare the source file: {error}")
+            return
+
         args = [
             str(self.cli_path),
-            "--preset",
-            preset,
-            "--LuaU",
-            "--nocolors",
-            "--saveerrors",
-            "--out",
-            str(output_file),
-            str(self.source_file),
+            str(staged_source),
+            "--target",
+            target,
+            f"--{preset}",
+            "--no-watermark",
         ]
 
         self.output_file = output_file
+        self.active_target = target
         self.cancel_requested = False
         self.last_log_message = ""
         self.log_box.clear()
         self.open_folder_button.setEnabled(False)
 
         self.append_log(f"Input: {self.source_file}")
+        self.append_log(f"Target: {target_label}")
         self.append_log(f"Preset: {preset} ({self.level_dropdown.currentText()})")
         self.append_log(f"Output: {output_file}")
 
@@ -952,7 +967,7 @@ class LuaObfuscator(QMainWindow):
 
         self.running = True
         self.obfuscate_button.setText("Cancel")
-        self.status_label.setText("Obfuscating…")
+        self.status_label.setText("Obfuscating...")
         self.progress_bar.setRange(0, 0)
         self.set_controls_enabled(False)
 
@@ -962,6 +977,7 @@ class LuaObfuscator(QMainWindow):
         self.file_browse_button.setEnabled(enabled)
         self.output_browse_button.setEnabled(enabled)
         self.level_dropdown.setEnabled(enabled)
+        self.target_dropdown.setEnabled(enabled)
 
     def read_process_output(self):
         if not self.process:
@@ -977,8 +993,71 @@ class LuaObfuscator(QMainWindow):
     def cancel_obfuscation(self):
         if self.process and self.process.state() != QProcess.NotRunning:
             self.cancel_requested = True
-            self.status_label.setText("Stopping…")
+            self.status_label.setText("Stopping...")
             self.process.kill()
+
+    def validate_staged_output(self) -> bool:
+        if self.staged_output is None or not self.staged_output.is_file():
+            return False
+        if self.staged_output.stat().st_size == 0:
+            return False
+        if self.active_target != "lua" or self.lua_path is None:
+            return True
+
+        compiler_path = self.lua_path.with_name("luac54.exe")
+        if not compiler_path.is_file():
+            self.append_log("Lua output could not be syntax checked.")
+            return True
+
+        try:
+            result = subprocess.run(
+                [str(compiler_path), "-p", str(self.staged_output)],
+                capture_output=True,
+                text=True,
+                timeout=15,
+                creationflags=self._creation_flags(),
+            )
+        except (OSError, subprocess.SubprocessError) as error:
+            self.append_log(f"Lua syntax check failed to start: {error}")
+            return False
+
+        if result.returncode != 0:
+            details = (result.stdout + result.stderr).strip()
+            if details:
+                self.append_log(details)
+            return False
+
+        self.append_log("Lua 5.4 syntax check passed.")
+        return True
+
+    def publish_staged_output(self) -> bool:
+        if self.output_file is None or self.staged_output is None:
+            return False
+
+        transfer_file = self.output_file.with_name(
+            f".{self.output_file.name}.{uuid.uuid4().hex}.tmp"
+        )
+        try:
+            shutil.copy2(self.staged_output, transfer_file)
+            os.replace(transfer_file, self.output_file)
+            return self.output_file.is_file() and self.output_file.stat().st_size > 0
+        except OSError as error:
+            self.append_log(f"Could not save the output: {error}")
+            return False
+        finally:
+            try:
+                transfer_file.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+    def cleanup_work_dir(self):
+        if self.work_dir is not None:
+            try:
+                shutil.rmtree(self.work_dir)
+            except OSError:
+                pass
+        self.work_dir = None
+        self.staged_output = None
 
     def process_finished(self, exit_code, exit_status):
         self.read_process_output()
@@ -988,17 +1067,11 @@ class LuaObfuscator(QMainWindow):
         self.set_controls_enabled(True)
         self.progress_bar.setRange(0, 100)
 
-        output_ok = (
-            self.output_file is not None
-            and self.output_file.is_file()
-            and self.output_file.stat().st_size > 0
-        )
-
         if self.cancel_requested:
             self.progress_bar.setValue(0)
             self.status_label.setText("Cancelled")
             self.append_log("Obfuscation cancelled.")
-        elif exit_code == 0 and output_ok:
+        elif exit_code == 0 and self.validate_staged_output() and self.publish_staged_output():
             self.progress_bar.setValue(100)
             self.status_label.setText("Done")
             self.append_log("Finished successfully.")
@@ -1006,20 +1079,11 @@ class LuaObfuscator(QMainWindow):
         else:
             self.progress_bar.setValue(0)
             self.status_label.setText("Failed")
-            error_file = self.source_file.with_suffix(".error.txt")
-            if error_file.is_file():
-                try:
-                    details = error_file.read_text(
-                        encoding="utf-8",
-                        errors="replace",
-                    ).strip()
-                    if details:
-                        self.append_log(details)
-                except OSError:
-                    pass
-            self.append_log(f"Prometheus exited with code {exit_code}.")
+            self.append_log(f"Hercules exited with code {exit_code}.")
 
+        self.cleanup_work_dir()
         self.process = None
+        self.active_target = None
 
     def process_error(self, error):
         if error == QProcess.FailedToStart:
@@ -1030,7 +1094,9 @@ class LuaObfuscator(QMainWindow):
             self.progress_bar.setRange(0, 100)
             self.progress_bar.setValue(0)
             self.status_label.setText("Failed")
+            self.cleanup_work_dir()
             self.process = None
+            self.active_target = None
         elif self.running and error != QProcess.Crashed:
             self.append_log(f"Process error: {error}")
 
@@ -1046,7 +1112,7 @@ class LuaObfuscator(QMainWindow):
         urls = event.mimeData().urls()
         if len(urls) == 1 and urls[0].isLocalFile():
             path = Path(urls[0].toLocalFile())
-            if path.suffix.lower() == ".lua":
+            if path.suffix.lower() in {".lua", ".luau"}:
                 event.acceptProposedAction()
                 return
         event.ignore()
@@ -1061,6 +1127,7 @@ class LuaObfuscator(QMainWindow):
         if self.process and self.process.state() != QProcess.NotRunning:
             self.process.kill()
             self.process.waitForFinished(1000)
+        self.cleanup_work_dir()
         event.accept()
 
 
