@@ -1,11 +1,12 @@
+.venv/
+.runtime/
+.setup-temp/
+setup.log
 __pycache__/
 *.py[cod]
 *.error.txt
 *.obfuscated.lua
-.venv/
-.runtime/
 Lua51/
 lua-5.1.5_Win64_bin/
 Prometheus/
 Prometheus-master/
-setup.log

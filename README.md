@@ -2,7 +2,7 @@
 
 # luau obfuscator
 
-a simple app for obfuscating Roblox LuaU scripts on Windows.
+a simple app for quickly obfuscating Roblox LuaU scripts and code on Windows.
 
 </div>
 
@@ -17,7 +17,6 @@ a simple app for obfuscating Roblox LuaU scripts on Windows.
 - select a file or drag it into the app
 - choose the output folder
 - follow progress in the built-in log
-- open the output folder from the app
 
 ## installation
 
@@ -26,9 +25,11 @@ a simple app for obfuscating Roblox LuaU scripts on Windows.
 3. run `Installer.bat`
 4. open `LuaU Obfuscator.pyw`
 
-The installer gets Python, PySide6, Prometheus, and Lua 5.1 from their official sources when they are not already available. It keeps Prometheus and Lua 5.1 inside the app folder. Python and PySide6 may be installed to your user environment.
+The installer gets the required components from their official sources. It keeps Prometheus and Lua 5.1 inside the app folder and does not require administrator access.
 
-Run `Installer.bat` again to repair missing components.
+If Python is already installed, setup uses it and installs or updates PySide6 in that Python environment. If Python is unavailable, setup installs Python 3.13 for the current Windows user.
+
+Run `Installer.bat` again whenever you want to repair the app's local files or missing components.
 
 ## usage
 
@@ -50,6 +51,8 @@ The finished file is saved as `<name>.obfuscated.lua`.
 
 The app has no telemetry, analytics, accounts, or usage tracking. To remove its local components, close the app and delete its folder. Python or PySide6 installed by setup may remain in your user environment.
 
-## responsible use
+## note
+
+This project was made with AI.
 
 Only obfuscate code you own or have permission to modify.
