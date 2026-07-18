@@ -7,7 +7,7 @@ A little tool I made with AI to quickly obfuscate Lua 5.4 and Roblox Luau script
 </div>
 
 <p align="center">
-  <img src="Lua Obfuscator.png" alt="lua obfuscator" width="675">
+  <img src="Lua Obfuscator.png" alt="lua obfuscator" width="694">
 </p>
 
 ## features
