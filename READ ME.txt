@@ -15,7 +15,7 @@ Lua output is saved as <name>.obfuscated.lua. Luau output is saved as <name>.obf
 
 TARGETS
 
-- Lua 5.4 uses every protection available in Hercules.
+- Lua 5.4 can use every protection available in Hercules.
 - Roblox Luau automatically skips the VM and bytecode protections that are incompatible with Luau.
 
 UPDATES

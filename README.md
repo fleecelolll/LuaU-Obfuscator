@@ -19,7 +19,7 @@ A little tool I made with AI to quickly obfuscate Lua 5.4 and Roblox Luau script
 - follow progress in the built-in log
 - process every script locally without uploads or telemetry
 
-Lua 5.4 uses Hercules's complete protection set. Luau automatically skips the VM and bytecode protections that are not compatible with the Luau runtime.
+Lua 5.4 can use the complete Hercules protection set. Luau automatically skips the VM and bytecode protections that are not compatible with the Luau runtime.
 
 ## installation
 
