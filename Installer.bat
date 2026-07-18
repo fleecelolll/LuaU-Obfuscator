@@ -69,13 +69,13 @@ echo  ==================================================
 echo                 LUA OBFUSCATOR SETUP
 echo  ==================================================
 echo.
-echo   This keeps the app and its dependencies inside
-echo   this folder. It does not need administrator access.
+echo   App-specific components stay inside this folder.
+echo   It does not need administrator access.
 echo.
 echo      Python environment     runs the app
 echo      PySide6                the app window
-echo      Hercules              obfuscates Lua and Luau
-echo      Lua 5.4               runs Hercules
+echo      Hercules               obfuscates Lua and Luau
+echo      Lua 5.4                runs Hercules
 echo.
 echo   Keep this window open until every check passes.
 echo   The first setup can take a few minutes.
