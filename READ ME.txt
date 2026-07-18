@@ -9,9 +9,9 @@ You do not need to run the installer as administrator.
 
 USE
 
-Double-click Lua Obfuscator.pyw, choose a .lua or .luau file, select Lua 5.4 or Roblox Luau, select an obfuscation level, choose the output folder, and click Obfuscate.
+Double-click Lua Obfuscator.pyw, choose a .lua, .luau, or .txt file, select Lua 5.4 or Roblox Luau, select an obfuscation level, choose the output folder, and click Obfuscate.
 
-Lua output is saved as <name>.obfuscated.lua. Luau output is saved as <name>.obfuscated.luau. The original file is never overwritten.
+Plain .txt files are treated as source for the selected target. Lua output is saved as <name>.obfuscated.lua. Luau output is saved as <name>.obfuscated.luau. The original file is never overwritten.
 
 TARGETS
 

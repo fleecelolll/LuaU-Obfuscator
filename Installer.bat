@@ -3,14 +3,17 @@ setlocal EnableExtensions DisableDelayedExpansion
 title Lua Obfuscator Installer
 
 set "NO_PAUSE=0"
+set "ASSUME_YES=0"
 
 :ParseArguments
 if "%~1"=="" goto ArgumentsReady
 if /I "%~1"=="--no-pause" set "NO_PAUSE=1"
+if /I "%~1"=="--yes" set "ASSUME_YES=1"
 shift
 goto ParseArguments
 
 :ArgumentsReady
+
 set "ROOT=%~dp0"
 set "APP_FILE=%ROOT%Lua Obfuscator.pyw"
 set "LOG=%ROOT%setup.log"
@@ -66,8 +69,8 @@ echo  ==================================================
 echo                 LUA OBFUSCATOR SETUP
 echo  ==================================================
 echo.
-echo   This keeps the app components inside this folder.
-echo   It does not require administrator access.
+echo   This keeps the app and its dependencies inside
+echo   this folder. It does not need administrator access.
 echo.
 echo      Python environment     runs the app
 echo      PySide6                the app window
@@ -75,6 +78,7 @@ echo      Hercules              obfuscates Lua and Luau
 echo      Lua 5.4               runs Hercules
 echo.
 echo   Keep this window open until every check passes.
+echo   The first setup can take a few minutes.
 echo.
 echo  ==================================================
 
@@ -87,17 +91,36 @@ echo.
 echo   [ STEP 1 / 5 ]   Private Python environment
 echo.
 call :ValidateVenv
-if not errorlevel 1 goto PythonEnvironmentReady
+if not errorlevel 1 (
+    echo      Existing environment is valid. Keeping it.
+    call :Log "Existing virtual environment passed validation."
+    goto PythonEnvironmentReady
+)
 
 call :FindBasePython
 if defined BASE_PY goto BasePythonReady
 
+echo      No compatible 64-bit CPython was found.
+echo.
+echo      This app supports Python 3.10 through 3.14.
+echo      An older or unsupported version may stop it from working.
+echo      Setup can install Python 3.13 for your Windows user
+echo      through winget. It does not need administrator access.
+echo.
 where winget.exe >nul 2>nul
 if errorlevel 1 (
     set "FAIL_MESSAGE=Python is missing and winget is unavailable. Install Python 3.10 through 3.14, then run setup again."
     goto Failed
 )
 
+if "%ASSUME_YES%"=="1" (
+    echo      Install Python 3.13 now? [Y/N]: Y
+) else (
+    choice /C YN /N /M "      Install Python 3.13 now? [Y/N]: "
+    if errorlevel 2 goto Cancelled
+)
+
+echo.
 echo      Installing Python for the current Windows user...
 winget install --id Python.Python.3.13 --exact --source winget --silent --scope user --accept-source-agreements --accept-package-agreements >>"%LOG%" 2>&1
 if errorlevel 1 (
@@ -128,9 +151,10 @@ if errorlevel 1 (
 echo      Done.
 
 echo.
-echo   [ STEP 2 / 5 ]   App window
+echo   [ STEP 2 / 5 ]   App components
 echo.
-echo      Installing the verified PySide6 version...
+echo      Installing or updating trusted packages from PyPI...
+echo      Existing components are reused whenever possible.
 call :InstallPySide
 if errorlevel 1 (
     set "FAIL_MESSAGE=PySide6 could not be installed or verified."
@@ -142,7 +166,11 @@ echo.
 echo   [ STEP 3 / 5 ]   Hercules
 echo.
 call :ValidateHercules
-if not errorlevel 1 goto HerculesReady
+if not errorlevel 1 (
+    echo      Current local copy is valid. Keeping it.
+    call :Log "Existing Hercules source passed validation."
+    goto HerculesReady
+)
 echo      Downloading the pinned Hercules source...
 call :InstallHercules
 if errorlevel 1 (
@@ -156,7 +184,11 @@ echo.
 echo   [ STEP 4 / 5 ]   Lua 5.4
 echo.
 call :ValidateLua
-if not errorlevel 1 goto LuaReady
+if not errorlevel 1 (
+    echo      Current local copy is valid. Keeping it.
+    call :Log "Existing Lua runtime passed validation."
+    goto LuaReady
+)
 echo      Downloading the verified Lua 5.4.8 runtime...
 call :InstallLua
 if errorlevel 1 (
@@ -187,14 +219,27 @@ echo  ==================================================
 echo.
 echo   Double click "Lua Obfuscator.pyw" to start.
 echo.
-echo   Run this installer again to repair the app's
-echo   private environment or downloaded components.
+echo   Run this installer again whenever you want to
+echo   repair the app's private components or runtime.
 echo.
 echo   Setup details were saved to:
 echo   "%LOG%"
 echo.
 call :PauseIfNeeded
 exit /b 0
+
+:Cancelled
+call :Log "Setup cancelled by the user before Python installation."
+echo.
+echo  ==================================================
+echo                     SETUP CANCELLED
+echo  ==================================================
+echo.
+echo   Nothing was installed outside this project folder.
+echo   Run Installer.bat again whenever you are ready.
+echo.
+call :PauseIfNeeded
+exit /b 1
 
 :Failed
 if not defined FAIL_MESSAGE set "FAIL_MESSAGE=Setup stopped because an unexpected error occurred."
@@ -206,10 +251,12 @@ echo  ==================================================
 echo.
 echo   %FAIL_MESSAGE%
 echo.
-echo   Details were saved to:
+echo   No success was reported because all checks did not pass.
+echo   The detailed log is here:
+echo.
 echo   "%LOG%"
 echo.
-echo   Fix the listed problem, then run setup again.
+echo   Fix the listed problem, then run Installer.bat again.
 echo.
 call :PauseIfNeeded
 exit /b 1

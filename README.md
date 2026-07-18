@@ -14,7 +14,7 @@ A little tool I made with AI to quickly obfuscate Lua 5.4 and Roblox Luau script
 
 - target Lua 5.4 or Roblox Luau
 - choose low, medium, or high obfuscation
-- select a `.lua` or `.luau` file or drag it into the app
+- select a `.lua`, `.luau`, or `.txt` file or drag it into the app
 - choose the output folder
 - follow progress in the built-in log
 - process every script locally without uploads or telemetry
@@ -36,13 +36,13 @@ The Hercules and Lua archives are checked against pinned SHA-256 checksums befor
 
 ## usage
 
-1. choose a `.lua` or `.luau` file
+1. choose a `.lua`, `.luau`, or `.txt` file
 2. select Lua 5.4 or Roblox Luau
 3. select low, medium, or high obfuscation
 4. choose the output folder
 5. click **Obfuscate**
 
-Lua output is saved as `<name>.obfuscated.lua`. Luau output is saved as `<name>.obfuscated.luau`. The original file is never overwritten.
+Plain `.txt` files are treated as source for the selected target. Lua output is saved as `<name>.obfuscated.lua`. Luau output is saved as `<name>.obfuscated.luau`. The original file is never overwritten.
 
 ## built with
 

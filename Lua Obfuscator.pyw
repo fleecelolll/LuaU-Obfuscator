@@ -637,7 +637,7 @@ class LuaObfuscator(QMainWindow):
 
         file_group = QVBoxLayout()
         file_group.setSpacing(label_gap)
-        file_label = QLabel("Lua file")
+        file_label = QLabel("Script file (.lua, .luau, or .txt)")
         file_label.setObjectName("label")
         file_group.addWidget(file_label)
 
@@ -648,7 +648,7 @@ class LuaObfuscator(QMainWindow):
         file_frame.setMinimumHeight(38)
         file_layout = QHBoxLayout(file_frame)
         file_layout.setContentsMargins(0, 0, 0, 0)
-        self.file_path_label = QLabel("Choose a .lua file or drag one onto the window")
+        self.file_path_label = QLabel("Choose a file or drag it here")
         self.file_path_label.setObjectName("pathLabel")
         self.file_path_label.setTextInteractionFlags(Qt.NoTextInteraction)
         file_layout.addWidget(self.file_path_label)
@@ -800,18 +800,18 @@ class LuaObfuscator(QMainWindow):
         )
         filename, _ = QFileDialog.getOpenFileName(
             self,
-            "Choose Lua File",
+            "Choose Lua or Luau File",
             start_folder,
-            "Lua files (*.lua *.luau);;All files (*.*)",
+            "Lua and Luau files (*.lua *.luau *.txt);;All files (*.*)",
         )
         if filename:
             self.set_source_file(Path(filename))
 
     def set_source_file(self, path: Path):
         path = path.expanduser().resolve()
-        if not path.is_file() or path.suffix.lower() not in {".lua", ".luau"}:
-            self.status_label.setText("Choose a Lua file")
-            self.append_log("Choose a valid .lua or .luau file.")
+        if not path.is_file() or path.suffix.lower() not in {".lua", ".luau", ".txt"}:
+            self.status_label.setText("Choose a script file")
+            self.append_log("Choose a valid .lua, .luau, or .txt file.")
             return
 
         self.source_file = path
@@ -873,7 +873,7 @@ class LuaObfuscator(QMainWindow):
 
         if self.source_file is None or not self.source_file.is_file():
             self.status_label.setText("Choose a file")
-            self.append_log("Choose a .lua or .luau file first.")
+            self.append_log("Choose a .lua, .luau, or .txt file first.")
             return
 
         if self.lua_path is None:
@@ -926,7 +926,9 @@ class LuaObfuscator(QMainWindow):
             self.work_dir = Path(
                 tempfile.mkdtemp(prefix="job-", dir=str(work_root))
             )
-            staged_source = self.work_dir / self.source_file.name
+            staged_source = self.work_dir / (
+                f"{self.source_file.stem}{output_extension}"
+            )
             shutil.copy2(self.source_file, staged_source)
             self.staged_output = self.work_dir / (
                 f"{self.source_file.stem}_obfuscated{output_extension}"
@@ -1112,7 +1114,7 @@ class LuaObfuscator(QMainWindow):
         urls = event.mimeData().urls()
         if len(urls) == 1 and urls[0].isLocalFile():
             path = Path(urls[0].toLocalFile())
-            if path.suffix.lower() in {".lua", ".luau"}:
+            if path.suffix.lower() in {".lua", ".luau", ".txt"}:
                 event.acceptProposedAction()
                 return
         event.ignore()
